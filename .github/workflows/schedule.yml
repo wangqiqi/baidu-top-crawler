@@ -31,8 +31,8 @@ jobs:
     - name: push to origin master
       run: |
         echo start push
-        git config --global user.name "quarrying"
-        git config --global user.email "quarrying@qq.com"
+        git config --global user.name "jwzhou"
+        git config --global user.email "zhou24388@163.com"
         
         git add -A
         git commit -m $(date '+%Y%m%d_%H%M')
