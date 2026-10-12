@@ -39,6 +39,10 @@ def check(
 
     md_records = 0
     json_records = 0
+    ranked_records = 0
+    unranked_records = 0
+    rank_conflicts: list[str] = []
+    ranks_by_key: dict[tuple[str, str], set[int]] = {}
     md_dates: Counter = Counter()
     json_dates: Counter = Counter()
 
@@ -61,8 +65,24 @@ def check(
             errors.append(
                 f"titles 计数不符 {path}: 声明 {titles} / 实际 {len({r.title for r in doc.records})}"
             )
+        for rec in doc.records:
+            if rec.rank is None:
+                unranked_records += 1
+                continue
+            ranked_records += 1
+            if rec.rank < 1:
+                errors.append(f"rank 非法（须 ≥1）{path}: {rec.title!r} rank={rec.rank}")
+            ranks_by_key.setdefault((rec.title, rec.time), set()).add(rec.rank)
         md_records += len(doc.records)
         md_dates[expect_date] += 1
+
+    for key, ranks in ranks_by_key.items():
+        if len(ranks) > 1:
+            rank_conflicts.append(f"{key[0]!r} @ {key[1]} 出现多个 rank: {sorted(ranks)}")
+    for conflict in rank_conflicts[:5]:
+        errors.append(f"同一 (标题, 时间) 存在不同 rank：{conflict}")
+    if len(rank_conflicts) > 5:
+        errors.append(f"...另有 {len(rank_conflicts) - 5} 处 rank 冲突")
 
     for path in json_files:
         try:
@@ -87,6 +107,8 @@ def check(
         "md_files": len(md_files),
         "json_files": len(json_files),
         "md_records": md_records,
+        "ranked_records": ranked_records,
+        "unranked_records": unranked_records,
         "json_records": json_records,
         "total_records": total,
         "min_records": min_records,
@@ -115,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"数据检查: MD {result['md_files']} 个 / {result['md_records']} 条 · "
             f"JSON {result['json_files']} 个 / {result['json_records']} 条 · "
-            f"合计 {result['total_records']} 条（基线 {result['min_records']}）"
+            f"合计 {result['total_records']} 条（基线 {result['min_records']}）· "
+            f"带 rank {result['ranked_records']} / 无 rank {result['unranked_records']}"
         )
         for warning in result["warnings"]:
             print(f"WARN: {warning}")

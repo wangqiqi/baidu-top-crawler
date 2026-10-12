@@ -122,3 +122,59 @@ def test_cli_exact_flag_passes_when_equal(tmp_path):
     write_day(tmp_path, "2026-10-12", titles=2, rows_each=1)
     code = check_data.main(["--root", str(tmp_path), "--expect-records", "2", "--min-records", "1"])
     assert code == 0
+
+
+# ------------------------------------------------- rank 校验（SPRINT-02 TASK-006）
+
+def write_ranked_day(root: Path, date: str, rows: list[tuple[str, str, int | None]]) -> Path:
+    compact = date.replace("-", "")
+    path = root / compact[:4] / f"{compact} 百度实时热点.md"
+    records = [fmt.Record(t, "01:00:00", hot, rank) for t, hot, rank in rows]
+    fmt.atomic_write_text(path, fmt.render(records, date=date))
+    return path
+
+
+def test_ranked_records_counted(tmp_path):
+    write_ranked_day(tmp_path, "2026-10-12", [("甲", "100", 1), ("乙", "90", None)])
+    result = check_data.check(tmp_path, min_records=1)
+    assert result["errors"] == []
+    assert result["ranked_records"] == 1
+    assert result["unranked_records"] == 1
+
+
+def test_rank_zero_is_rejected(tmp_path):
+    write_ranked_day(tmp_path, "2026-10-12", [("甲", "100", 0)])
+    result = check_data.check(tmp_path, min_records=1)
+    assert any("rank 非法" in e for e in result["errors"])
+
+
+def test_conflicting_rank_for_same_title_and_time_is_rejected(tmp_path):
+    """同一 (标题, 时间) 出现两个不同 rank → 账不平，必须报错。"""
+    path = tmp_path / "2026" / "20261012 百度实时热点.md"
+    text = (
+        '---\nschema: 2\ndate: "2026-10-12"\ntimezone: "+08:00"\nboard: realtime\n'
+        "snapshots: 1\ntitles: 1\nrecords: 2\n---\n\n"
+        "## 甲\n\n- 01:00:00 100 3\n- 01:00:00 100 7\n"
+    )
+    fmt.atomic_write_text(path, text)
+    result = check_data.check(tmp_path, min_records=1)
+    assert any("存在不同 rank" in e for e in result["errors"])
+
+
+def test_same_rank_twice_is_not_a_conflict(tmp_path):
+    path = tmp_path / "2026" / "20261012 百度实时热点.md"
+    text = (
+        '---\nschema: 2\ndate: "2026-10-12"\ntimezone: "+08:00"\nboard: realtime\n'
+        "snapshots: 1\ntitles: 1\nrecords: 2\n---\n\n"
+        "## 甲\n\n- 01:00:00 100 3\n- 01:00:00 200 3\n"
+    )
+    fmt.atomic_write_text(path, text)
+    result = check_data.check(tmp_path, min_records=1)
+    assert result["errors"] == []
+    assert result["ranked_records"] == 2
+
+
+def test_real_repo_has_no_rank_violations():
+    root = Path(__file__).resolve().parent.parent
+    result = check_data.check(root)
+    assert result["errors"] == []
