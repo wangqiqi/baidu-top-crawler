@@ -239,3 +239,30 @@ def test_run_once_empty_result_writes_nothing(tmp_path):
     )
     assert result["crawled"] == 0
     assert not list(tmp_path.rglob("*.md"))
+
+
+# ------------------------------------------------- 运行期产物不入库（TASK-011）
+
+def test_lock_files_are_gitignored_and_untracked():
+    """文件锁是运行期产物：既不能被 git 跟踪，也要被 .gitignore 覆盖。"""
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    ignore = (root / ".gitignore").read_text(encoding="utf-8")
+    assert "*.lock" in ignore
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "20*/*.lock"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    assert tracked == "", f"锁文件被误入库: {tracked}"
+
+
+def test_lock_file_is_not_matched_by_data_glob(tmp_path):
+    """确认锁文件确实生成在数据目录旁（因此必须靠 .gitignore 挡）。"""
+    path = store.md_path_for(tmp_path, DATE)
+    with store.file_lock(path):
+        assert Path(str(path) + store.LOCK_SUFFIX).exists()
