@@ -15,6 +15,7 @@ import os
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from . import format as fmt
@@ -138,7 +139,9 @@ def append_records(
 ) -> dict[str, int]:
     """幂等追加记录并原子落盘。
 
-    返回统计：``{"added": n, "skipped": n, "total": n, "unparsed": n}``。
+    返回统计：``{"added": n, "skipped": n, "upgraded": n, "total": n, "unparsed": n}``。
+
+    ``upgraded`` = 同一幂等键的旧记录原本缺 ``rank``、本次补上的条数（原地升级，不新增行）。
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -166,23 +169,42 @@ def append_records(
                 existing = legacy_records
                 doc_date = date or legacy_date
 
-        seen = {(rec.title, rec.time, rec.hot) for rec in existing}
+        # 幂等键 (title, time, hot)；rank 是键上的属性，可原地升级（规范 §9）
+        index: dict[tuple, int] = {}
+        for pos, rec in enumerate(existing):
+            index.setdefault((rec.title, rec.time, rec.hot), pos)
+
+        merged = list(existing)
         added = 0
         skipped = 0
-        merged = list(existing)
+        upgraded = 0
         for rec in records:
             if not rec.title.strip():
                 skipped += 1
                 continue
             key = (rec.title, rec.time, rec.hot)
-            if key in seen:
-                skipped += 1
+            pos = index.get(key)
+            if pos is None:
+                index[key] = len(merged)
+                merged.append(rec)
+                added += 1
                 continue
-            seen.add(key)
-            merged.append(rec)
-            added += 1
+            old = merged[pos]
+            if old.rank is None and rec.rank is not None:
+                # 同一观测补上 rank：原地升级，不新增行
+                merged[pos] = replace(old, rank=rec.rank)
+                upgraded += 1
+                continue
+            # 已有 rank 不被覆盖（避免抓取抖动改写历史位次）；其余视为重复
+            skipped += 1
 
         text = fmt.render(merged, date=doc_date, generated=generated)
         fmt.atomic_write_text(target, text)
 
-    return {"added": added, "skipped": skipped, "total": len(merged), "unparsed": unparsed}
+    return {
+        "added": added,
+        "skipped": skipped,
+        "upgraded": upgraded,
+        "total": len(merged),
+        "unparsed": unparsed,
+    }

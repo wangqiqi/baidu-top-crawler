@@ -33,7 +33,7 @@ def test_md_path_for_rejects_bad_date(tmp_path):
 def test_append_creates_file_with_front_matter(tmp_path):
     path = store.md_path_for(tmp_path, DATE)
     stats = store.append_records(path, [rec("甲", "01:00:00", "1")], date=DATE)
-    assert stats == {"added": 1, "skipped": 0, "total": 1, "unparsed": 0}
+    assert stats == {"added": 1, "skipped": 0, "upgraded": 0, "total": 1, "unparsed": 0}
     text = path.read_text(encoding="utf-8")
     assert text.startswith("---\n")
     assert 'date: "2025-03-08"' in text
@@ -47,7 +47,7 @@ def test_append_is_idempotent(tmp_path):
     first = store.append_records(path, batch, date=DATE)
     second = store.append_records(path, batch, date=DATE)
     assert first["added"] == 2
-    assert second == {"added": 0, "skipped": 2, "total": 2, "unparsed": 0}
+    assert second == {"added": 0, "skipped": 2, "upgraded": 0, "total": 2, "unparsed": 0}
     assert len(fmt.load_md(path).records) == 2
 
 
@@ -266,3 +266,61 @@ def test_lock_file_is_not_matched_by_data_glob(tmp_path):
     path = store.md_path_for(tmp_path, DATE)
     with store.file_lock(path):
         assert Path(str(path) + store.LOCK_SUFFIX).exists()
+
+
+# ------------------------------------------------- v2 rank 的幂等与升级（规范 §9）
+
+def test_rank_upgrade_is_in_place(tmp_path):
+    """旧行缺 rank、新记录带 rank → 原地补上，不新增行、不改顺序。"""
+    path = store.md_path_for(tmp_path, DATE)
+    store.append_records(path, [rec("甲", "01:00:00", "1"), rec("乙", "02:00:00", "2")], date=DATE)
+    stats = store.append_records(
+        path, [fmt.Record("甲", "01:00:00", "1", 5)], date=DATE
+    )
+    assert stats == {"added": 0, "skipped": 0, "upgraded": 1, "total": 2, "unparsed": 0}
+    doc = fmt.load_md(path)
+    assert [(r.title, r.rank) for r in doc.records] == [("甲", 5), ("乙", None)]
+    assert "schema: 2" in path.read_text(encoding="utf-8")
+
+
+def test_existing_rank_is_not_overwritten(tmp_path):
+    """已有 rank 不被后续不同 rank 覆盖（避免抓取抖动改写历史位次）。"""
+    path = store.md_path_for(tmp_path, DATE)
+    store.append_records(path, [fmt.Record("甲", "01:00:00", "1", 3)], date=DATE)
+    stats = store.append_records(path, [fmt.Record("甲", "01:00:00", "1", 99)], date=DATE)
+    assert stats["skipped"] == 1
+    assert fmt.load_md(path).records[0].rank == 3
+
+
+def test_incoming_without_rank_does_not_erase_existing_rank(tmp_path):
+    path = store.md_path_for(tmp_path, DATE)
+    store.append_records(path, [fmt.Record("甲", "01:00:00", "1", 7)], date=DATE)
+    store.append_records(path, [fmt.Record("甲", "01:00:00", "1")], date=DATE)
+    doc = fmt.load_md(path)
+    assert len(doc.records) == 1
+    assert doc.records[0].rank == 7
+
+
+def test_v2_roundtrip_through_store(tmp_path):
+    path = store.md_path_for(tmp_path, DATE)
+    batch = [
+        fmt.Record("甲", "01:00:00", "100", 1),
+        fmt.Record("甲", "02:00:00", "90", 4),
+        fmt.Record("乙", "02:00:00", "80"),
+    ]
+    store.append_records(path, batch, date=DATE)
+    doc = fmt.load_md(path)
+    assert [r.key(with_rank=True) for r in doc.records] == [r.key(with_rank=True) for r in batch]
+    assert doc.unparsed == []
+
+
+def test_same_second_different_hot_still_two_rows_with_rank(tmp_path):
+    """v2 不破坏 v1 的「同秒不同热度是两条记录」语义。"""
+    path = store.md_path_for(tmp_path, DATE)
+    store.append_records(
+        path,
+        [fmt.Record("同秒", "14:01:44", "2474046", 2), fmt.Record("同秒", "14:01:44", "2969728", 1)],
+        date=DATE,
+    )
+    doc = fmt.load_md(path)
+    assert [(r.hot, r.rank) for r in doc.records] == [("2474046", 2), ("2969728", 1)]
