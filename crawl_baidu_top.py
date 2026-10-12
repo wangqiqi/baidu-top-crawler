@@ -7,16 +7,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import requests
 from bs4 import BeautifulSoup
-from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from baidutop import format as fmt
+from baidutop import http as http_layer
 from baidutop import store
 
 # 配置常量
@@ -39,6 +37,7 @@ class BaiduHotSearchCrawler:
         timeout: int = REQUEST_TIMEOUT,
         max_retries: int = MAX_RETRIES,
         retry_delay: float = RETRY_DELAY,
+        http_client: Optional[http_layer.HttpClient] = None,
     ):
         """
         初始化爬虫
@@ -47,23 +46,22 @@ class BaiduHotSearchCrawler:
             timeout: 请求超时时间（秒）
             max_retries: 最大重试次数
             retry_delay: 重试基础间隔（秒）
+            http_client: 注入自定义 HTTP 客户端（测试用）
         """
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.logger = logging.getLogger(__name__)
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            }
+        self.policy = http_layer.RetryPolicy(max_retries=max_retries, backoff=retry_delay)
+        self.http = http_client or http_layer.HttpClient(
+            timeout=timeout,
+            policy=self.policy,
+            logger=self.logger,
         )
 
     def _make_request_with_retry(self, url: str) -> str:
         """
-        带重试机制的HTTP请求
+        带重试机制的HTTP请求（退避策略见 baidutop.http.RetryPolicy）
 
         Args:
             url: 请求URL
@@ -72,29 +70,9 @@ class BaiduHotSearchCrawler:
             响应文本内容
 
         Raises:
-            RequestException: 请求失败
+            HttpRetryError: 重试用尽仍失败
         """
-        last_error: Optional[Exception] = None
-
-        for attempt in range(self.max_retries):
-            try:
-                self.logger.debug(f"发送请求 (尝试 {attempt + 1}/{self.max_retries}): {url}")
-                response = self.session.get(url, timeout=self.timeout)
-                response.raise_for_status()
-                return response.text
-
-            except (Timeout, ConnectionError) as e:
-                last_error = e
-                self.logger.warning(f"请求失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay)
-
-            except RequestException as e:
-                last_error = e
-                self.logger.error(f"HTTP请求错误: {e}")
-                raise
-
-        raise RequestException(f"请求失败，已重试 {self.max_retries} 次: {last_error}")
+        return self.http.get_text(url)
 
     def crawl_hot_search(self, board: str = "realtime") -> List[Tuple[str, str]]:
         """
