@@ -1,0 +1,14 @@
+{
+  "name": "baidu-top-crawler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "百度热搜爬虫 —— 数据仓库 + 采集脚本（PlanRun guard 宿主）",
+  "scripts": {
+    "gate-check": "node scripts/run-bash.mjs scripts/dsh-guard.sh gate-check",
+    "plan-check": "node scripts/run-bash.mjs scripts/dsh-guard.sh plan-check",
+    "task-verify": "node scripts/run-bash.mjs scripts/dsh-guard.sh task-verify",
+    "next-task": "node scripts/run-bash.mjs scripts/dsh-guard.sh next-task",
+    "doctor": "node scripts/run-bash.mjs scripts/dsh-guard.sh doctor",
+    "guard": "node scripts/run-bash.mjs scripts/dsh-guard.sh status"
+  }
+}
