@@ -210,8 +210,8 @@ def test_crawler_uses_injected_http_client():
     crawler = crawler_mod.BaiduHotSearchCrawler(http_client=client)
     pairs = crawler.crawl_hot_search()
     assert pairs == [
-        ("#郭婞淳夺中国台北东京奥运首金#", "7974352"),
-        ("5.6万人接种疫苗离境后无一感染", "7956248"),
+        ("#郭婞淳夺中国台北东京奥运首金#", "7974352", 1),
+        ("5.6万人接种疫苗离境后无一感染", "7956248", 2),
     ]
     assert "tab=realtime" in session.calls[0]["url"]
 
@@ -240,3 +240,37 @@ def test_crawler_retry_delay_feeds_policy():
     assert crawler.policy.backoff == 0.5
     assert crawler.policy.max_retries == 4
     assert crawler.http.timeout == 5
+
+
+# ------------------------------------------------- 榜单序号（SPRINT-02 TASK-004）
+
+BROKEN_MIDDLE_HTML = """
+<html><body>
+  <div class="category-wrap">
+    <div class="c-single-text-ellipsis">第一条</div><div class="hot-index">111</div>
+  </div>
+  <div class="category-wrap">
+    <div class="c-single-text-ellipsis">缺热度的条目</div>
+  </div>
+  <div class="category-wrap">
+    <div class="c-single-text-ellipsis">第三条</div><div class="hot-index">333</div>
+  </div>
+</body></html>
+"""
+
+
+def test_crawler_rank_follows_page_order():
+    import crawl_baidu_top as crawler_mod
+
+    client, _, _ = make_client([FakeResponse(200, SAMPLE_HTML)])
+    pairs = crawler_mod.BaiduHotSearchCrawler(http_client=client).crawl_hot_search()
+    assert [p[2] for p in pairs] == [1, 2]
+
+
+def test_crawler_rank_skips_without_renumbering():
+    """缺字段的条目被跳过，但后续序号不重排——序号反映真实页面位次。"""
+    import crawl_baidu_top as crawler_mod
+
+    client, _, _ = make_client([FakeResponse(200, BROKEN_MIDDLE_HTML)])
+    pairs = crawler_mod.BaiduHotSearchCrawler(http_client=client).crawl_hot_search()
+    assert pairs == [("第一条", "111", 1), ("第三条", "333", 3)]

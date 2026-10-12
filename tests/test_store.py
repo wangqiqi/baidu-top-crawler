@@ -206,7 +206,7 @@ def test_run_once_writes_md_and_is_same_day(tmp_path):
     captured = datetime(2026, 2, 25, 23, 59, 59, tzinfo=TZ)
     result = crawler.run_once(
         root=tmp_path,
-        crawler=FakeCrawler([("标题A", "123"), ("标题B", "456")]),
+        crawler=FakeCrawler([("标题A", "123", 1), ("标题B", "456", 2)]),
         captured_at=captured,
     )
     assert result["added"] == 2
@@ -222,7 +222,7 @@ def test_run_once_rerun_is_idempotent(tmp_path):
     import crawl_baidu_top as crawler
 
     captured = datetime(2026, 2, 25, 12, 0, 0, tzinfo=TZ)
-    fake = FakeCrawler([("标题A", "123")])
+    fake = FakeCrawler([("标题A", "123", 1)])
     crawler.run_once(root=tmp_path, crawler=fake, captured_at=captured)
     second = crawler.run_once(root=tmp_path, crawler=fake, captured_at=captured)
     assert second["added"] == 0
@@ -324,3 +324,52 @@ def test_same_second_different_hot_still_two_rows_with_rank(tmp_path):
     )
     doc = fmt.load_md(path)
     assert [(r.hot, r.rank) for r in doc.records] == [("2474046", 2), ("2969728", 1)]
+
+
+# ------------------------------------------- 爬虫采集 rank 的集成（SPRINT-02 TASK-004）
+
+def test_build_records_maps_rank_and_allows_missing():
+    import crawl_baidu_top as crawler
+
+    captured = datetime(2026, 10, 12, 12, 0, 0, tzinfo=TZ)
+    records = crawler.build_records(
+        [("甲", "1", 3), ("乙", "2", None)], "2026-10-12", captured
+    )
+    assert [r.rank for r in records] == [3, None]
+    assert {r.time for r in records} == {"12:00:00"}
+
+
+def test_run_once_writes_v2_rows_with_rank(tmp_path):
+    import crawl_baidu_top as crawler
+
+    captured = datetime(2026, 10, 12, 12, 0, 0, tzinfo=TZ)
+    result = crawler.run_once(
+        root=tmp_path,
+        crawler=FakeCrawler([("甲", "100", 1), ("乙", "200", 2)]),
+        captured_at=captured,
+    )
+    doc = fmt.load_md(Path(result["path"]))
+    assert doc.meta["schema"] == "2"
+    assert [(r.title, r.rank) for r in doc.records] == [("甲", 1), ("乙", 2)]
+
+
+def test_run_once_keeps_existing_v1_rows_untouched(tmp_path):
+    """当日文件已有 v1 行时：旧行原样保留，新行带 rank，文件 schema 升为 2。"""
+    import crawl_baidu_top as crawler
+
+    date = "2026-10-12"
+    path = store.md_path_for(tmp_path, date)
+    store.append_records(path, [rec("旧标题", "09:00:00", "999")], date=date)
+
+    captured = datetime(2026, 10, 12, 12, 0, 0, tzinfo=TZ)
+    crawler.run_once(
+        root=tmp_path, crawler=FakeCrawler([("新标题", "100", 1)]), captured_at=captured
+    )
+
+    text = path.read_text(encoding="utf-8")
+    assert "- 09:00:00 999\n" in text  # v1 行未被改写
+    assert "- 12:00:00 100 1\n" in text  # v2 行带 rank
+    doc = fmt.load_md(path)
+    assert doc.meta["schema"] == "2"
+    assert [(r.title, r.rank) for r in doc.records] == [("旧标题", None), ("新标题", 1)]
+    assert doc.unparsed == []

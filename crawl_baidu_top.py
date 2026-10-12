@@ -75,7 +75,7 @@ class BaiduHotSearchCrawler:
         """
         return self.http.get_text(url)
 
-    def crawl_hot_search(self, board: str = "realtime") -> list[tuple[str, str]]:
+    def crawl_hot_search(self, board: str = "realtime") -> list[tuple[str, str, int]]:
         """
         爬取百度热搜榜单
 
@@ -83,7 +83,8 @@ class BaiduHotSearchCrawler:
             board: 榜单类型，默认realtime（实时热点）
 
         Returns:
-            热搜标题和热度指数的列表
+            ``(标题, 热度, 榜单序号)`` 列表；序号为 1 基的**页面顺序**（规范 §6.2）。
+            条目缺标题或热度时跳过该条，**不重排后续序号**（宁缺勿错）。
 
         Raises:
             RequestException: 爬取失败
@@ -101,15 +102,15 @@ class BaiduHotSearchCrawler:
                 self.logger.warning("未找到热搜数据，可能页面结构已更新")
                 return []
 
-            results: list[tuple[str, str]] = []
-            for item in record_tags:
+            results: list[tuple[str, str, int]] = []
+            for position, item in enumerate(record_tags, start=1):
                 title_tag = item.find("div", class_=lambda x: x and "c-single-text-ellipsis" in x)
                 hot_index_tag = item.find("div", class_=lambda x: x and "hot-index" in x)
 
                 if title_tag and hot_index_tag:
                     title = title_tag.get_text(strip=True)
                     hot_index = hot_index_tag.get_text(strip=True)
-                    results.append((title, hot_index))
+                    results.append((title, hot_index, position))
 
             self.logger.info(f"成功爬取 {len(results)} 条热搜数据")
             return results
@@ -126,11 +127,17 @@ class BaiduHotSearchCrawler:
 
 
 def build_records(
-    pairs: Sequence[tuple[str, str]], date: str, captured_at: datetime
+    pairs: Sequence[tuple[str, str, int | None]], date: str, captured_at: datetime
 ) -> list[fmt.Record]:
-    """把抓取结果转成 v1 记录（同一批共用同一时刻，避免跨日错位）。"""
+    """把抓取结果转成 v2 记录（同一批共用同一时刻，避免跨日错位）。
+
+    ``pairs`` 为 ``(标题, 热度, 榜单序号)``；序号缺失（``None``）时不写 rank 字段。
+    """
     token = fmt.format_datetime(captured_at, date)
-    return [fmt.Record(title=title, time=token, hot=hot) for title, hot in pairs]
+    return [
+        fmt.Record(title=title, time=token, hot=hot, rank=rank)
+        for title, hot, rank in pairs
+    ]
 
 
 def run_once(
