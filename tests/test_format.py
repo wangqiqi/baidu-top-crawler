@@ -223,3 +223,110 @@ def test_atomic_write_replaces_and_leaves_no_temp(tmp_path):
     fmt.atomic_write_text(target, "v2")
     assert target.read_text(encoding="utf-8") == "v2"
     assert sorted(p.name for p in tmp_path.iterdir()) == [target.name]
+
+
+# ------------------------------------------------------- v2：rank（规范 §5.2 §6.2）
+
+def test_render_v2_writes_rank_and_schema_2():
+    records = [fmt.Record("甲", "01:00:00", "100", 3), fmt.Record("乙", "01:00:00", "200", 1)]
+    text = fmt.render(records, date="2025-03-08")
+    assert "schema: 2" in text
+    assert "- 01:00:00 100 3" in text
+    assert "- 01:00:00 200 1" in text
+
+
+def test_render_v1_only_keeps_schema_1():
+    records = [fmt.Record("甲", "01:00:00", "100")]
+    text = fmt.render(records, date="2025-03-08")
+    assert "schema: 1" in text
+    assert "- 01:00:00 100\n" in text
+
+
+def test_parse_reads_rank():
+    text = fmt.render([fmt.Record("甲", "01:00:00", "100", 7)], date="2025-03-08")
+    doc = fmt.parse(text)
+    assert not doc.unparsed
+    assert doc.records[0].rank == 7
+    assert doc.records[0].hot == "100"
+
+
+def test_v1_row_has_no_rank():
+    text = fmt.render([fmt.Record("甲", "01:00:00", "100")], date="2025-03-08")
+    doc = fmt.parse(text)
+    assert doc.records[0].rank is None
+
+
+def test_mixed_v1_v2_rows_in_one_file():
+    """同一文件内两代行并存：逐行判定，schema 取最高版本。"""
+    text = (
+        '---\nschema: 2\ndate: "2025-03-08"\ntimezone: "+08:00"\nboard: realtime\n---\n\n'
+        "## 甲\n\n- 01:00:00 100 5\n- 02:00:00 200\n\n"
+    )
+    doc = fmt.parse(text)
+    assert [(r.hot, r.rank) for r in doc.records] == [("100", 5), ("200", None)]
+    assert doc.unparsed == []
+
+
+def test_roundtrip_with_rank_preserves_all_fields():
+    records = [
+        fmt.Record("甲", "01:00:00", "100", 1),
+        fmt.Record("甲", "02:00:00", "90", 4),
+        fmt.Record("乙", "02:00:00", "80"),  # 缺 rank：必须保持缺失
+    ]
+    doc = fmt.parse(fmt.render(records, date="2025-03-08"))
+    assert [r.key(with_rank=True) for r in doc.records] == [r.key(with_rank=True) for r in records]
+
+
+def test_missing_rank_is_absent_not_placeholder():
+    text = fmt.render([fmt.Record("乙", "02:00:00", "80")], date="2025-03-08")
+    assert "- 02:00:00 80\n" in text
+    assert "80 0" not in text and "80 -" not in text and "80 None" not in text
+
+
+def test_schema_version_of():
+    assert fmt.schema_version_of([fmt.Record("甲", "01:00:00", "1")]) == 1
+    assert fmt.schema_version_of([fmt.Record("甲", "01:00:00", "1", 2)]) == 2
+    assert fmt.schema_version_of(
+        [fmt.Record("甲", "01:00:00", "1"), fmt.Record("乙", "01:00:00", "2", 3)]
+    ) == 2
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ("100", ("100", None)),
+        ("100 3", ("100", 3)),
+        ("1.2万", ("1.2万", None)),
+        ("100 万", None),  # 第 3 段非数字 → 不可解析（不猜）
+        ("100 3 4", None),  # 段数过多 → 不可解析
+    ],
+)
+def test_parse_row_shapes(body, expected):
+    assert fmt.parse_row(body) == expected
+
+
+def test_row_with_non_numeric_third_field_is_unparsed_not_dropped():
+    text = (
+        '---\nschema: 1\ndate: "2025-03-08"\n---\n\n## 甲\n\n- 01:00:00 100\n- 02:00:00 200 万\n'
+    )
+    doc = fmt.parse(text)
+    assert [r.hot for r in doc.records] == ["100"]
+    assert len(doc.unparsed) == 1
+    assert doc.unparsed[0][1] == "- 02:00:00 200 万"
+
+
+def test_rank_zero_parses_and_is_left_for_checker():
+    """解析器宽容：0 非法但可解析，由数据校验脚本负责判定。"""
+    doc = fmt.parse('---\nschema: 2\ndate: "2025-03-08"\n---\n\n## 甲\n\n- 01:00:00 100 0\n')
+    assert doc.records[0].rank == 0
+
+
+def test_legacy_json_records_have_no_rank(tmp_path):
+    path = tmp_path / "20201104 实时热点.json"
+    path.write_text(
+        '{"甲": [{"time": "2020-11-04 09:00:00.1+08:00", "count": "8800000"}]}',
+        encoding="utf-8",
+    )
+    _, records = fmt.read_legacy_json(path)
+    assert records[0].rank is None
+    assert fmt.schema_version_of(records) == 1

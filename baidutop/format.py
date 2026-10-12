@@ -1,11 +1,13 @@
-"""百度热搜数据格式 v1（紧凑 Markdown 分节）读写实现。
+"""百度热搜数据格式 v2（紧凑 Markdown 分节 + 榜单排名）读写实现。
 
 权威规范：docs/data-format.md。本模块是纯文本 ↔ 记录 的转换层，
 不含抓取逻辑；文件系统写入用 :func:`atomic_write_text`（原子替换）。
 
 记录级契约（§8）：
-    (title, time_sec, hot) 有序多重集在 v0 → v1 前后完全一致；
-    唯一允许的有损是微秒 6 位被丢弃。
+- v1 行 ``(title, time_sec, hot)`` 有序多重集一致；
+- v2 行在末尾多一个可选 ``rank``（1 基榜单序号）；
+- 同一文件内 v1/v2 行可混存，逐行按字段数判定；
+- 唯一允许的有损是微秒 6 位被丢弃。
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+SCHEMA_VERSION_V1 = 1
 TZ = timezone(timedelta(hours=8))
 TZ_LABEL = "+08:00"
 BOARD = "realtime"
@@ -34,7 +37,8 @@ ROW_PREFIX = "- "
 _ISO_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$"
 )
-# v1 数据行：时间可为 `HH:MM:SS`（本日）或 `YYYY-MM-DD HH:MM:SS`（跨日）。
+# 数据行：时间可为 `HH:MM:SS`（本日）或 `YYYY-MM-DD HH:MM:SS`（跨日），
+# 其后为 `<hot>`（v1）或 `<hot> <rank>`（v2）。
 _ROW_RE = re.compile(
     r"^(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{2}:\d{2}:\d{2})\s+(.*)$"
 )
@@ -42,18 +46,22 @@ _FILE_DATE_RE = re.compile(r"(\d{8})")
 
 
 class FormatError(ValueError):
-    """内容不符合 v1 规范。"""
+    """内容不符合数据格式规范。"""
 
 
 @dataclass(frozen=True)
 class Record:
-    """一条热搜记录（标题 · 秒级时间 · 热度原文）。"""
+    """一条热搜记录（标题 · 秒级时间 · 热度原文 · 可选榜单序号）。"""
 
     title: str
     time: str
     hot: str
+    rank: int | None = None
 
-    def key(self) -> tuple[str, str, str]:
+    def key(self, *, with_rank: bool = False) -> tuple:
+        """幂等键 ``(title, time, hot)``；``with_rank=True`` 时含 rank（round-trip 比对用）。"""
+        if with_rank:
+            return (self.title, self.time, self.hot, self.rank)
         return (self.title, self.time, self.hot)
 
 
@@ -146,6 +154,18 @@ def _quote(value: str) -> str:
     return f'"{escaped}"'
 
 
+def schema_version_of(records: Iterable[Record]) -> int:
+    """文件内出现的最高行版本：出现任一带 rank 的行即为 2，否则 1。"""
+    return SCHEMA_VERSION if any(r.rank is not None for r in records) else SCHEMA_VERSION_V1
+
+
+def format_row(rec: Record) -> str:
+    """渲染单条数据行：`- <time> <hot> [<rank>]`（rank 缺失即不写）。"""
+    if rec.rank is None:
+        return f"{ROW_PREFIX}{rec.time} {rec.hot}"
+    return f"{ROW_PREFIX}{rec.time} {rec.hot} {rec.rank}"
+
+
 def render(
     records: Iterable[Record],
     *,
@@ -154,7 +174,7 @@ def render(
     source: str = SOURCE_URL,
     board: str = BOARD,
 ) -> str:
-    """渲染整个 v1 文档。空标题被跳过；标题顺序 = 首次出现顺序。"""
+    """渲染整个文档（v1/v2 自适配）。空标题被跳过；标题顺序 = 首次出现顺序。"""
     sections: OrderedDict[str, list[Record]] = OrderedDict()
     snapshots: set = set()
     for rec in records:
@@ -163,10 +183,11 @@ def render(
         sections.setdefault(rec.title, []).append(rec)
         snapshots.add(rec.time)
 
-    total = sum(len(v) for v in sections.values())
+    flat = [rec for recs in sections.values() for rec in recs]
+    total = len(flat)
     lines: list[str] = [
         FM_FENCE,
-        f"schema: {SCHEMA_VERSION}",
+        f"schema: {schema_version_of(flat)}",
         f"date: {_quote(date)}",
         f"timezone: {_quote(TZ_LABEL)}",
         f"board: {board}",
@@ -184,7 +205,7 @@ def render(
         lines.append(TITLE_PREFIX + escape_title(title))
         lines.append("")
         for rec in recs:
-            lines.append(f"{ROW_PREFIX}{rec.time} {rec.hot}")
+            lines.append(format_row(rec))
         lines.append("")
 
     return "\n".join(lines).rstrip("\n") + "\n"
@@ -197,8 +218,23 @@ def _unquote(value: str) -> str:
     return value
 
 
+def parse_row(body: str) -> tuple[str, str, int | None] | None:
+    """解析 ``- `` 之后的正文，返回 ``(hot, rank)`` 或 ``None``（无法解析）。
+
+    - 1 段 → v1 行：hot，无 rank
+    - 2 段且末段为纯数字 → v2 行：hot + rank
+    - 其余（含 3 段以上）→ 无法解析，调用方保留原文
+    """
+    parts = body.split()
+    if len(parts) == 1:
+        return parts[0], None
+    if len(parts) == 2 and parts[1].isdigit():
+        return parts[0], int(parts[1])
+    return None
+
+
 def parse(text: str, *, fallback_date: str | None = None) -> Document:
-    """解析 v1 文档；不合规的行保留进 ``unparsed``，不静默丢弃。"""
+    """解析 v1/v2 文档；不合规的行保留进 ``unparsed``，不静默丢弃。"""
     lines = text.splitlines()
     doc = Document()
     idx = 0
@@ -232,9 +268,14 @@ def parse(text: str, *, fallback_date: str | None = None) -> Document:
             if not m:
                 doc.unparsed.append((lineno, raw))
                 continue
-            date_part, hms, hot = m.group(1), m.group(2), m.group(3)
+            date_part, hms, body = m.group(1), m.group(2), m.group(3)
+            fields = parse_row(body)
+            if fields is None:
+                doc.unparsed.append((lineno, raw))
+                continue
+            hot, rank = fields
             token = f"{date_part} {hms}" if date_part else hms
-            doc.records.append(Record(title=current, time=token, hot=hot))
+            doc.records.append(Record(title=current, time=token, hot=hot, rank=rank))
             continue
         doc.unparsed.append((lineno, raw))
 
