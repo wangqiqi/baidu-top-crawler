@@ -1,6 +1,6 @@
 [project]
 name = "baidu-top-crawler"
-version = "1.0.1"
+version = "1.1.0"
 description = "百度热搜爬虫 —— 数据仓库（v1 紧凑 Markdown 分节）+ 采集脚本"
 requires-python = ">=3.11"
 dependencies = [
