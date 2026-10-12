@@ -15,10 +15,10 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
 TZ = timezone(timedelta(hours=8))
@@ -53,7 +53,7 @@ class Record:
     time: str
     hot: str
 
-    def key(self) -> Tuple[str, str, str]:
+    def key(self) -> tuple[str, str, str]:
         return (self.title, self.time, self.hot)
 
 
@@ -61,9 +61,9 @@ class Record:
 class Document:
     """解析结果：front matter + 记录 + 无法解析的原始行。"""
 
-    meta: Dict[str, str] = field(default_factory=dict)
-    records: List[Record] = field(default_factory=list)
-    unparsed: List[Tuple[int, str]] = field(default_factory=list)
+    meta: dict[str, str] = field(default_factory=dict)
+    records: list[Record] = field(default_factory=list)
+    unparsed: list[tuple[int, str]] = field(default_factory=list)
 
     @property
     def date(self) -> str:
@@ -84,7 +84,7 @@ def escape_title(title: str) -> str:
 
 def unescape_title(text: str) -> str:
     """还原 :func:`escape_title` 的转义（反序解码）。"""
-    out: List[str] = []
+    out: list[str] = []
     i = 0
     while i < len(text):
         ch = text[i]
@@ -125,10 +125,10 @@ def format_datetime(dt: datetime, file_date: str) -> str:
 
 def now_utc8() -> datetime:
     """当前 UTC+8 时间（全项目统一时区来源）。"""
-    return datetime.now(timezone.utc).astimezone(TZ)
+    return datetime.now(UTC).astimezone(TZ)
 
 
-def file_date_from_name(path: "os.PathLike[str] | str") -> str:
+def file_date_from_name(path: os.PathLike[str] | str) -> str:
     """从文件名提取 ``YYYYMMDD`` 并转成 ``YYYY-MM-DD``。"""
     m = _FILE_DATE_RE.search(Path(path).name)
     if not m:
@@ -150,12 +150,12 @@ def render(
     records: Iterable[Record],
     *,
     date: str,
-    generated: Optional[str] = None,
+    generated: str | None = None,
     source: str = SOURCE_URL,
     board: str = BOARD,
 ) -> str:
     """渲染整个 v1 文档。空标题被跳过；标题顺序 = 首次出现顺序。"""
-    sections: "OrderedDict[str, List[Record]]" = OrderedDict()
+    sections: OrderedDict[str, list[Record]] = OrderedDict()
     snapshots: set = set()
     for rec in records:
         if not rec.title.strip():
@@ -164,7 +164,7 @@ def render(
         snapshots.add(rec.time)
 
     total = sum(len(v) for v in sections.values())
-    lines: List[str] = [
+    lines: list[str] = [
         FM_FENCE,
         f"schema: {SCHEMA_VERSION}",
         f"date: {_quote(date)}",
@@ -197,7 +197,7 @@ def _unquote(value: str) -> str:
     return value
 
 
-def parse(text: str, *, fallback_date: Optional[str] = None) -> Document:
+def parse(text: str, *, fallback_date: str | None = None) -> Document:
     """解析 v1 文档；不合规的行保留进 ``unparsed``，不静默丢弃。"""
     lines = text.splitlines()
     doc = Document()
@@ -215,7 +215,7 @@ def parse(text: str, *, fallback_date: Optional[str] = None) -> Document:
     if fallback_date and "date" not in doc.meta:
         doc.meta["date"] = fallback_date
 
-    current: Optional[str] = None
+    current: str | None = None
     for lineno, raw in enumerate(lines[idx:], start=idx + 1):
         stripped = raw.rstrip()
         if not stripped:
@@ -245,7 +245,7 @@ def parse(text: str, *, fallback_date: Optional[str] = None) -> Document:
 # 文件 IO
 # --------------------------------------------------------------------------
 
-def atomic_write_text(path: "os.PathLike[str] | str", text: str) -> None:
+def atomic_write_text(path: os.PathLike[str] | str, text: str) -> None:
     """同目录临时文件 + ``os.replace`` 原子替换，避免半截文件。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -264,7 +264,7 @@ def atomic_write_text(path: "os.PathLike[str] | str", text: str) -> None:
         raise
 
 
-def load_md(path: "os.PathLike[str] | str") -> Document:
+def load_md(path: os.PathLike[str] | str) -> Document:
     """读取 v1 文件；缺 front matter 时用文件名兜底日期。"""
     text = Path(path).read_text(encoding="utf-8")
     fallback = None
@@ -280,8 +280,8 @@ def load_md(path: "os.PathLike[str] | str") -> Document:
 # --------------------------------------------------------------------------
 
 def read_legacy_json(
-    path: "os.PathLike[str] | str", *, file_date: Optional[str] = None
-) -> Tuple[str, List[Record]]:
+    path: os.PathLike[str] | str, *, file_date: str | None = None
+) -> tuple[str, list[Record]]:
     """读取 v0 JSON 分组格式，返回 ``(日期, 记录列表)``。
 
     兼容 ``count`` / ``hot_index`` 两种热度键与 ``T`` / 空格两种时间分隔符。
@@ -292,7 +292,7 @@ def read_legacy_json(
     if not isinstance(data, dict):
         raise FormatError(f"{target}: 顶层不是对象")
 
-    records: List[Record] = []
+    records: list[Record] = []
     for title, entries in data.items():
         if not isinstance(title, str) or not title.strip():
             continue
@@ -310,9 +310,9 @@ def read_legacy_json(
     return date, records
 
 
-def index_by_title(records: Sequence[Record]) -> "OrderedDict[str, List[Record]]":
+def index_by_title(records: Sequence[Record]) -> OrderedDict[str, list[Record]]:
     """按标题分组，保持首次出现顺序（校验与增量合并用）。"""
-    grouped: "OrderedDict[str, List[Record]]" = OrderedDict()
+    grouped: OrderedDict[str, list[Record]] = OrderedDict()
     for rec in records:
         grouped.setdefault(rec.title, []).append(rec)
     return grouped

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from bs4 import BeautifulSoup
 
@@ -37,7 +38,7 @@ class BaiduHotSearchCrawler:
         timeout: int = REQUEST_TIMEOUT,
         max_retries: int = MAX_RETRIES,
         retry_delay: float = RETRY_DELAY,
-        http_client: Optional[http_layer.HttpClient] = None,
+        http_client: http_layer.HttpClient | None = None,
     ):
         """
         初始化爬虫
@@ -74,7 +75,7 @@ class BaiduHotSearchCrawler:
         """
         return self.http.get_text(url)
 
-    def crawl_hot_search(self, board: str = "realtime") -> List[Tuple[str, str]]:
+    def crawl_hot_search(self, board: str = "realtime") -> list[tuple[str, str]]:
         """
         爬取百度热搜榜单
 
@@ -100,7 +101,7 @@ class BaiduHotSearchCrawler:
                 self.logger.warning("未找到热搜数据，可能页面结构已更新")
                 return []
 
-            results: List[Tuple[str, str]] = []
+            results: list[tuple[str, str]] = []
             for item in record_tags:
                 title_tag = item.find("div", class_=lambda x: x and "c-single-text-ellipsis" in x)
                 hot_index_tag = item.find("div", class_=lambda x: x and "hot-index" in x)
@@ -125,8 +126,8 @@ class BaiduHotSearchCrawler:
 
 
 def build_records(
-    pairs: Sequence[Tuple[str, str]], date: str, captured_at: datetime
-) -> List[fmt.Record]:
+    pairs: Sequence[tuple[str, str]], date: str, captured_at: datetime
+) -> list[fmt.Record]:
     """把抓取结果转成 v1 记录（同一批共用同一时刻，避免跨日错位）。"""
     token = fmt.format_datetime(captured_at, date)
     return [fmt.Record(title=title, time=token, hot=hot) for title, hot in pairs]
@@ -136,9 +137,9 @@ def run_once(
     *,
     root: Path = ROOT,
     board: str = "realtime",
-    crawler: Optional[BaiduHotSearchCrawler] = None,
-    captured_at: Optional[datetime] = None,
-) -> Dict[str, Any]:
+    crawler: BaiduHotSearchCrawler | None = None,
+    captured_at: datetime | None = None,
+) -> dict[str, Any]:
     """执行一次抓取并落盘，返回统计信息。"""
     logger = logging.getLogger(__name__)
     now = captured_at or fmt.now_utc8()
@@ -172,7 +173,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     )
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """主函数"""
     parser = argparse.ArgumentParser(description="抓取百度实时热点并写入 v1 Markdown")
     parser.add_argument("--root", type=Path, default=ROOT, help="数据仓库根目录")

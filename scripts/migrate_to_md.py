@@ -16,7 +16,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -36,10 +35,10 @@ def convert_one(
     *,
     write: bool = True,
     check_only: bool = False,
-    generated: Optional[str] = None,
-) -> Dict[str, object]:
+    generated: str | None = None,
+) -> dict[str, object]:
     """迁移单个文件并做记录级校验，返回报告字典。"""
-    report: Dict[str, object] = {"json": str(json_path), "ok": False}
+    report: dict[str, object] = {"json": str(json_path), "ok": False}
     try:
         date, records = fmt.read_legacy_json(json_path)
         md_path = md_path_for(json_path)
@@ -78,11 +77,11 @@ def convert_one(
         return report
 
 
-def iter_json_files(root: Path) -> List[Path]:
+def iter_json_files(root: Path) -> list[Path]:
     return sorted(p for p in root.glob("20*/*.json") if p.is_file())
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="v0 JSON → v1 Markdown 迁移")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="仓库根目录")
     parser.add_argument("--dry-run", action="store_true", help="只统计，不写文件")
@@ -100,7 +99,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     generated = fmt.now_utc8().isoformat()
-    reports: List[Dict[str, object]] = []
+    reports: list[dict[str, object]] = []
     json_total = md_total = records_total = 0
     failures = 0
     deleted = 0

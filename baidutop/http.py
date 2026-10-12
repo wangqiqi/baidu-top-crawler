@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, FrozenSet, Optional
+from typing import Any
 
 import requests
 from requests import Response
@@ -23,13 +24,13 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-DEFAULT_HEADERS: Dict[str, str] = {
+DEFAULT_HEADERS: dict[str, str] = {
     "User-Agent": DEFAULT_USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
-RETRYABLE_STATUS: FrozenSet[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+RETRYABLE_STATUS: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class HttpRetryError(RequestException):
@@ -43,9 +44,9 @@ class RetryPolicy:
     max_retries: int = DEFAULT_MAX_RETRIES
     backoff: float = DEFAULT_BACKOFF
     max_backoff: float = DEFAULT_MAX_BACKOFF
-    retryable_status: FrozenSet[int] = field(default=RETRYABLE_STATUS)
+    retryable_status: frozenset[int] = field(default=RETRYABLE_STATUS)
 
-    def delay_for(self, attempt: int, response: Optional[Response] = None) -> float:
+    def delay_for(self, attempt: int, response: Response | None = None) -> float:
         """第 ``attempt`` 次（1 起）失败后的等待秒数；优先尊重 ``Retry-After``。"""
         if response is not None:
             header = response.headers.get("Retry-After") if response.headers else None
@@ -57,7 +58,7 @@ class RetryPolicy:
         return min(self.backoff * (2 ** (attempt - 1)), self.max_backoff)
 
 
-def build_session(headers: Optional[Dict[str, str]] = None) -> requests.Session:
+def build_session(headers: dict[str, str] | None = None) -> requests.Session:
     """构造带默认头的 Session。"""
     session = requests.Session()
     session.headers.update(DEFAULT_HEADERS if headers is None else headers)
@@ -71,10 +72,10 @@ class HttpClient:
         self,
         *,
         timeout: float = DEFAULT_TIMEOUT,
-        policy: Optional[RetryPolicy] = None,
-        session: Optional[Any] = None,
+        policy: RetryPolicy | None = None,
+        session: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.timeout = timeout
         self.policy = policy or RetryPolicy()
@@ -82,9 +83,9 @@ class HttpClient:
         self._sleep = sleep
         self.logger = logger or logging.getLogger(__name__)
 
-    def get_text(self, url: str, *, params: Optional[Dict[str, Any]] = None) -> str:
+    def get_text(self, url: str, *, params: dict[str, Any] | None = None) -> str:
         """GET 并返回响应文本；按策略重试，失败抛 :class:`HttpRetryError`。"""
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(1, self.policy.max_retries + 1):
             self.logger.debug(f"发送请求 (尝试 {attempt}/{self.policy.max_retries}): {url}")
@@ -122,7 +123,7 @@ class HttpClient:
         attempt: int,
         url: str,
         error: Exception,
-        response: Optional[Response],
+        response: Response | None,
     ) -> None:
         """记录日志并退避；最后一次尝试不再等待。"""
         if attempt >= self.policy.max_retries:

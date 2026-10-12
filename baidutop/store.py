@@ -13,9 +13,9 @@ import errno
 import fcntl
 import os
 import time
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 from . import format as fmt
 
@@ -30,7 +30,7 @@ class StoreError(RuntimeError):
 
 @contextmanager
 def file_lock(
-    path: "os.PathLike[str] | str",
+    path: os.PathLike[str] | str,
     *,
     timeout: float = DEFAULT_LOCK_TIMEOUT,
     poll: float = 0.05,
@@ -59,7 +59,7 @@ def file_lock(
             handle.close()
 
 
-def md_path_for(root: "os.PathLike[str] | str", date: str) -> Path:
+def md_path_for(root: os.PathLike[str] | str, date: str) -> Path:
     """按 v1 命名规则生成路径：``<root>/YYYY/YYYYMMDD 百度实时热点.md``。"""
     compact = date.replace("-", "")
     if len(compact) != 8:
@@ -67,7 +67,7 @@ def md_path_for(root: "os.PathLike[str] | str", date: str) -> Path:
     return Path(root) / compact[:4] / f"{compact} 百度实时热点.md"
 
 
-def legacy_json_paths(md_path: "os.PathLike[str] | str") -> List[Path]:
+def legacy_json_paths(md_path: os.PathLike[str] | str) -> list[Path]:
     """同日的 v0 JSON 候选路径（含无「百度」前缀的旧命名）。"""
     target = Path(md_path)
     compact = target.name.split(" ")[0]
@@ -77,9 +77,9 @@ def legacy_json_paths(md_path: "os.PathLike[str] | str") -> List[Path]:
     ]
 
 
-def _read_any(md_path: Path) -> Tuple[str, List[fmt.Record], Optional[Path], List[str]]:
+def _read_any(md_path: Path) -> tuple[str, list[fmt.Record], Path | None, list[str]]:
     """读取 MD；不存在时回退到 v0 JSON。返回 (日期, 记录, 来源, 告警)。"""
-    warnings: List[str] = []
+    warnings: list[str] = []
     if md_path.exists():
         doc = fmt.load_md(md_path)
         date = doc.date or fmt.file_date_from_name(md_path)
@@ -95,8 +95,8 @@ def _read_any(md_path: Path) -> Tuple[str, List[fmt.Record], Optional[Path], Lis
 
 
 def load_records(
-    path: "os.PathLike[str] | str",
-) -> Tuple[str, List[fmt.Record]]:
+    path: os.PathLike[str] | str,
+) -> tuple[str, list[fmt.Record]]:
     """读取当日记录（MD 优先，其次 v0 JSON）。"""
     target = Path(path)
     date, records, _source, _warnings = _read_any(target)
@@ -104,11 +104,11 @@ def load_records(
 
 
 def write_document(
-    path: "os.PathLike[str] | str",
+    path: os.PathLike[str] | str,
     records: Sequence[fmt.Record],
     *,
-    date: Optional[str] = None,
-    generated: Optional[str] = None,
+    date: str | None = None,
+    generated: str | None = None,
 ) -> str:
     """整文件原子写出（调用方负责加锁）。返回写出的文本。"""
     target = Path(path)
@@ -129,13 +129,13 @@ def _backup_corrupt(target: Path) -> Path:
 
 
 def append_records(
-    path: "os.PathLike[str] | str",
+    path: os.PathLike[str] | str,
     records: Sequence[fmt.Record],
     *,
-    date: Optional[str] = None,
-    generated: Optional[str] = None,
+    date: str | None = None,
+    generated: str | None = None,
     lock_timeout: float = DEFAULT_LOCK_TIMEOUT,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """幂等追加记录并原子落盘。
 
     返回统计：``{"added": n, "skipped": n, "total": n, "unparsed": n}``。
@@ -144,7 +144,7 @@ def append_records(
     target.parent.mkdir(parents=True, exist_ok=True)
 
     with file_lock(target, timeout=lock_timeout):
-        existing: List[fmt.Record] = []
+        existing: list[fmt.Record] = []
         unparsed = 0
         doc_date = date or fmt.file_date_from_name(target)
 

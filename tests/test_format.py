@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -205,7 +205,7 @@ def test_normalize_time_rejects_garbage():
 
 
 def test_format_datetime_converts_to_utc8():
-    utc = datetime(2025, 3, 7, 16, 19, 29, tzinfo=timezone.utc)
+    utc = datetime(2025, 3, 7, 16, 19, 29, tzinfo=UTC)
     assert fmt.format_datetime(utc, "2025-03-08") == "00:19:29"
 
 
