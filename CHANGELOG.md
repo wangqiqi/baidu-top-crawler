@@ -2,6 +2,30 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)，变更记录格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.0.1] - 2026-10-12
+
+v1.0.0 发布后经**线上实测**暴露的回归修复。
+
+### Fixed
+
+- **TASK-010**：数据完整性检查把历史记录总数 1,850,921 当作**精确值**，导致每次线上抓取
+  新增数据后校验必然失败、提交步骤永不执行（**采集静默中断**）。改为**下限校验**
+  （低于基线才失败，防丢数据），精确比对仅在 `--expect-records` 时生效。
+- **TASK-011**：`.gitignore` 缺少 `*.lock`，CI 的 `git add -A` 把 `file_lock` 创建的
+  `*.md.lock` 连同数据一起提交入库，并阻塞本地 rebase。
+
+### Added
+
+- `./scripts/verify.sh --data-exact`：迁移验收用的记录总数精确校验模式
+- 回归测试：`tests/test_check_data.py`（13 个）· `tests/test_store.py` 锁文件守护（2 个）
+
+### Notes
+
+- 线上验证：手动触发 `workflow_dispatch` 确认「抓取 → 校验 → 提交 → 推送」全绿，
+  且机器人提交仅含数据文件（Actions run `38234147703` · `38234343971`）
+- 教训：17 个 workflow 结构测试全绿，也没能发现「校验通过但业务上必然失败」这类回归——
+  发布后必须真跑一次线上链路
+
 ## [1.0.0] - 2026-10-12
 
 数据格式冻结为 v1，采集链路可靠性重建完成。
