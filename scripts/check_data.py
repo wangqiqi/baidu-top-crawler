@@ -43,6 +43,7 @@ def check(
     unranked_records = 0
     rank_conflicts: list[str] = []
     ranks_by_key: dict[tuple[str, str], set[int]] = {}
+    rank_inversions = 0
     md_dates: Counter = Counter()
     json_dates: Counter = Counter()
 
@@ -65,6 +66,7 @@ def check(
             errors.append(
                 f"titles 计数不符 {path}: 声明 {titles} / 实际 {len({r.title for r in doc.records})}"
             )
+        ranked_by_time: dict[str, list[fmt.Record]] = {}
         for rec in doc.records:
             if rec.rank is None:
                 unranked_records += 1
@@ -73,6 +75,12 @@ def check(
             if rec.rank < 1:
                 errors.append(f"rank 非法（须 ≥1）{path}: {rec.title!r} rank={rec.rank}")
             ranks_by_key.setdefault((rec.title, rec.time), set()).add(rec.rank)
+            ranked_by_time.setdefault(rec.time, []).append(rec)
+        # 同一快照内 rank 与热度应同向（实测线上样本 0 处逆序）；逆序多说明解析顺序可疑
+        for rows in ranked_by_time.values():
+            ordered = sorted(rows, key=lambda r: r.rank)
+            nums = [int(r.hot) for r in ordered if r.hot.isdigit()]
+            rank_inversions += sum(1 for i in range(len(nums) - 1) if nums[i] < nums[i + 1])
         md_records += len(doc.records)
         md_dates[expect_date] += 1
 
@@ -93,6 +101,11 @@ def check(
         json_records += len(records)
         json_dates[date] += 1
 
+    if rank_inversions:
+        warnings.append(
+            f"{rank_inversions} 处快照内 rank 与热度逆序（线上实测样本为 0；持续出现请检查榜单解析顺序）"
+        )
+
     both = sorted(set(md_dates) & set(json_dates))
     if both:
         warnings.append(f"{len(both)} 天的 MD 与 JSON 并存（迁移进行中）: {both[:3]}")
@@ -109,6 +122,7 @@ def check(
         "md_records": md_records,
         "ranked_records": ranked_records,
         "unranked_records": unranked_records,
+        "rank_inversions": rank_inversions,
         "json_records": json_records,
         "total_records": total,
         "min_records": min_records,

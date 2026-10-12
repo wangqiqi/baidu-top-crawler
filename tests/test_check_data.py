@@ -178,3 +178,25 @@ def test_real_repo_has_no_rank_violations():
     root = Path(__file__).resolve().parent.parent
     result = check_data.check(root)
     assert result["errors"] == []
+
+
+def write_snapshot_file(path: Path, rows: list[tuple[str, str, int]]) -> None:
+    records = [fmt.Record(t, "01:00:00", hot, rank) for t, hot, rank in rows]
+    fmt.atomic_write_text(path, fmt.render(records, date="2026-10-12"))
+
+
+def test_rank_hot_aligned_snapshot_has_no_inversions(tmp_path):
+    path = tmp_path / "2026" / "20261012 百度实时热点.md"
+    write_snapshot_file(path, [("甲", "300", 1), ("乙", "200", 2), ("丙", "100", 3)])
+    result = check_data.check(tmp_path, min_records=1)
+    assert result["rank_inversions"] == 0
+    assert result["warnings"] == []
+
+
+def test_rank_hot_inversion_is_reported_as_warning(tmp_path):
+    path = tmp_path / "2026" / "20261012 百度实时热点.md"
+    write_snapshot_file(path, [("甲", "100", 1), ("乙", "300", 2)])
+    result = check_data.check(tmp_path, min_records=1)
+    assert result["rank_inversions"] == 1
+    assert any("逆序" in w for w in result["warnings"])
+    assert result["errors"] == []  # 只是信号，不阻断
