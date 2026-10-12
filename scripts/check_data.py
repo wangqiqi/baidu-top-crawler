@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""数据完整性检查：解析全部 v1 MD 与遗留 v0 JSON，核对记录数与规范一致性。
+"""数据完整性检查：解析全部 v1 MD 与遗留 v0 JSON，核对结构一致性与记录数下限。
 
 迁移前（存在 JSON）与迁移后（只剩 MD）都能跑：
 - 任一文件解析失败 / MD 存在无法解析的行 / front matter 日期与文件名不符 → 失败
-- 迁移完成后（无遗留 JSON）强制校验记录总数 == --expect-records
+- 声明的 records / titles 计数与实际不符 → 失败
+- **记录总数低于历史基线 → 失败（疑似数据丢失）**；总数增长是正常的（每天都在抓新数据）
+
+注意（TASK-010 回归修复）：历史基线是**下限**而不是等号。v1.0.0 曾把它当作精确值，
+导致每次线上抓取后校验必然失败、提交步骤永不执行。需要精确比对时用 ``--expect-records``。
 """
 
 from __future__ import annotations
@@ -19,10 +23,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from baidutop import format as fmt  # noqa: E402
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_RECORDS = 1850921
+# 迁移完成时的记录数（2026-10-12）。只作为下限：低于它说明历史数据丢了。
+MIN_RECORDS = 1850921
 
 
-def check(root: Path, expect_records: int) -> dict[str, object]:
+def check(
+    root: Path,
+    expect_records: int | None = None,
+    min_records: int = MIN_RECORDS,
+) -> dict[str, object]:
     errors: list[str] = []
     warnings: list[str] = []
     md_files = sorted(root.glob("20*/*.md"))
@@ -49,7 +58,9 @@ def check(root: Path, expect_records: int) -> dict[str, object]:
             errors.append(f"records 计数不符 {path}: 声明 {declared} / 实际 {len(doc.records)}")
         titles = doc.meta.get("titles")
         if titles is not None and int(titles) != len({r.title for r in doc.records}):
-            errors.append(f"titles 计数不符 {path}: 声明 {titles}")
+            errors.append(
+                f"titles 计数不符 {path}: 声明 {titles} / 实际 {len({r.title for r in doc.records})}"
+            )
         md_records += len(doc.records)
         md_dates[expect_date] += 1
 
@@ -66,22 +77,19 @@ def check(root: Path, expect_records: int) -> dict[str, object]:
     if both:
         warnings.append(f"{len(both)} 天的 MD 与 JSON 并存（迁移进行中）: {both[:3]}")
 
-    if not json_files and md_files:
-        if md_records != expect_records:
-            errors.append(f"记录总数不符: 期望 {expect_records} / 实际 {md_records}")
-    elif json_files and not md_files:
-        if json_records != expect_records:
-            errors.append(f"遗留 JSON 记录总数不符: 期望 {expect_records} / 实际 {json_records}")
-    else:
-        total = md_records + json_records
-        if total != expect_records:
-            warnings.append(f"MD+JSON 合计 {total} 条，期望 {expect_records}（迁移混合态下仅提示）")
+    total = md_records + json_records
+    if total < min_records:
+        errors.append(f"记录总数 {total} 低于历史基线 {min_records}（疑似数据丢失）")
+    if expect_records is not None and total != expect_records:
+        errors.append(f"记录总数不符（精确校验）: 期望 {expect_records} / 实际 {total}")
 
     return {
         "md_files": len(md_files),
         "json_files": len(json_files),
         "md_records": md_records,
         "json_records": json_records,
+        "total_records": total,
+        "min_records": min_records,
         "errors": errors,
         "warnings": warnings,
     }
@@ -90,17 +98,24 @@ def check(root: Path, expect_records: int) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="数据完整性检查")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
-    parser.add_argument("--expect-records", type=int, default=EXPECTED_RECORDS)
+    parser.add_argument(
+        "--expect-records",
+        type=int,
+        default=None,
+        help="精确校验记录总数（迁移验收用；默认只校验不低于基线）",
+    )
+    parser.add_argument("--min-records", type=int, default=MIN_RECORDS, help="记录总数下限")
     parser.add_argument("--json-report", type=Path, help="把结果写成 JSON")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
-    result = check(args.root, args.expect_records)
+    result = check(args.root, args.expect_records, args.min_records)
 
     if not args.quiet:
         print(
             f"数据检查: MD {result['md_files']} 个 / {result['md_records']} 条 · "
-            f"JSON {result['json_files']} 个 / {result['json_records']} 条"
+            f"JSON {result['json_files']} 个 / {result['json_records']} 条 · "
+            f"合计 {result['total_records']} 条（基线 {result['min_records']}）"
         )
         for warning in result["warnings"]:
             print(f"WARN: {warning}")

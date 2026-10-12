@@ -5,7 +5,8 @@
 #   ./scripts/verify.sh            # 全量（体积只报告，不因迁移未完成而失败）
 #   ./scripts/verify.sh --lint     # 只跑 ruff
 #   ./scripts/verify.sh --tests    # 只跑 pytest
-#   ./scripts/verify.sh --data     # 只跑数据完整性（迁移验收）
+#   ./scripts/verify.sh --data     # 数据完整性（结构 + 记录数不低于基线）
+#   ./scripts/verify.sh --data-exact  # 数据完整性 + 记录总数精确等于 1,850,921
 #   ./scripts/verify.sh --size     # 体积预算硬校验（TASK-009 验收）
 set -euo pipefail
 
@@ -30,7 +31,7 @@ run_tests() {
 
 run_data() {
   echo "==> data integrity"
-  "$PY" scripts/check_data.py
+  "$PY" scripts/check_data.py "$@"
 }
 
 run_size() {
@@ -43,6 +44,7 @@ case "$mode" in
   --lint)  run_lint ;;
   --tests) run_tests ;;
   --data)  run_data ;;
+  --data-exact) run_data --expect-records 1850921 ;;
   --size)  run_size --strict ;;
   --report-size) run_size ;;
   all|"")
