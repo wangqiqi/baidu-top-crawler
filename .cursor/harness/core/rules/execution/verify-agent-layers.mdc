@@ -1,0 +1,46 @@
+---
+description: Agent 验收分层 — 每 TASK 最小验证；Sprint 出口一次大验证
+globs:
+  - .growing/plan.md
+  - plan.md
+  - scripts/verify*.sh
+  - scripts/test.sh
+alwaysApply: false
+---
+
+# 验收分层（Agent）
+
+与 `rules/feedback/verify.mdc` · 项目 `learn/dev-conventions.md`（若有）一致。
+
+## 铁律
+
+| 时机 | 做什么 | 禁止 |
+|------|--------|------|
+| **每个 TASK 收尾** | 只跑 **本 TASK 验收列** + **与本 TASK 改动文件相关** 的命令 | Sprint 出口全量 · 无参 `./scripts/test.sh`（若等价整库 L1） |
+| **Sprint 全部 TASK ✅ 后** | plan `<!-- VERIFY: ... -->` **一次** | 每 TASK 结束后跑大验证 |
+| **`release-tag`** | 同 `HEAD` 可复用 stamp（若项目支持） | 刚跑完出口验证又跑第二遍 |
+
+## TASK 级推荐（按改动面）
+
+| 改动 | 用这个 | 不是那个 |
+|------|--------|----------|
+| 单个/少量前端文件 | 定向 vitest/jest · `-- path` | 全量前端 test |
+| 单个后端模块 | 定向 pytest · 单文件/`-k` | 全库 pytest |
+| scripts/ 或跨栈 | 项目变更集 verify 入口（若项目有） | 出口全量 |
+| plan meta/SSOT | 定向脚本单测 | 整包 test |
+
+**task-verify** 只执行验收列；Agent **不得**在 TASK 通过后「顺便」加跑全量。
+
+## Sprint 闭合 TASK（DOC / closeout）
+
+- 验收列写 **`manual:`** 或 **archive 路径**，**不要**写出口全量脚本（大验证在 Done when / 收尾 **一次**）。
+
+## Shell / 长命令
+
+- 仅 **Sprint 闭合** 或用户明确要求时跑出口验证：`block_until_ms` ≥ **360000**（6 min）或项目文档约定。
+- **禁止**用短 sleep 轮询代替读 terminal 或足够长的 Shell 阻塞。
+
+## plan 元数据
+
+- `<!-- VERIFY: ... -->` = **Sprint 出口**（全部 TASK ✅ 后 **一次**）。
+- TASK **验收列**：定向 pytest/vitest · 项目变更集入口 · 小范围脚本；**不写**出口全量。

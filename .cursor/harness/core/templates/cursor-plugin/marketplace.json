@@ -1,0 +1,20 @@
+{
+  "name": "super-cursor",
+  "owner": {
+    "name": "Super Cursor",
+    "email": "plugins@users.noreply.github.com"
+  },
+  "metadata": {
+    "description": "Super Cursor — plan/run workflow for Cursor Agent. Plugin is a lifecycle subset; full SOP uses install-super-cursor.sh.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "super-cursor-mvp",
+      "source": "super-cursor-mvp",
+      "description": "Lifecycle skills (master·plan·run·learn·scaffold), ship/review/spike agents, core rules, and session hooks.",
+      "license": "MIT",
+      "keywords": ["workflow", "plan", "sprint", "agents"]
+    }
+  ]
+}

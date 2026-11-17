@@ -1,0 +1,12 @@
+---
+description: 示例 — Agent 验收分层（复制到 .growing/rules/local/ 并按项目改验证入口）
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# 验收分层（项目 local · 示例）
+
+**SSOT**：`rules/execution/verify-agent-layers.mdc`（母版）。
+
+项目栈专属验证入口（vitest 路径 · pytest 模块名 · 项目 fast/changed 脚本真源）→ `.growing/learn/dev-conventions.md`。

@@ -1,0 +1,26 @@
+{
+  "name": "super-cursor-mvp",
+  "version": "0.3.0",
+  "description": "Super Cursor lifecycle companion: plan/run discipline, core rules, ship·review·spike agents, and session hooks. Install the full Super Cursor template first for config and verify; this plugin does not replace install.",
+  "license": "MIT",
+  "author": {
+    "name": "Super Cursor",
+    "email": "plugins@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/ORG/REPO",
+  "repository": "https://github.com/ORG/REPO",
+  "keywords": [
+    "cursor",
+    "super-cursor",
+    "plan",
+    "run",
+    "workflow",
+    "agents",
+    "sprint"
+  ],
+  "logo": "assets/logo.svg",
+  "rules": "rules",
+  "skills": "skills",
+  "agents": "agents",
+  "hooks": "hooks/hooks.json"
+}

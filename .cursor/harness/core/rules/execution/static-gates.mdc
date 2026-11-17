@@ -1,0 +1,45 @@
+---
+description: 执行规范 · L1 静态门禁聚合（grep · 文档链 · 可达性 · 设计 token 类）
+globs:
+  - scripts/verify*.sh
+  - scripts/**/verify-*.sh
+  - scripts/**/verify_*.sh
+  - .github/workflows/**
+  - "**/verify-static*"
+alwaysApply: false
+---
+
+# 执行规范 · 静态门禁（static-gates）
+
+**用这个**：快、无外部服务的 L1 断言（秒级）。**不是那个**：单测/E2E 全量 · Sprint 出口全量 verify（见 `rules/feedback/verify.mdc`）。
+
+## 模式
+
+| 类型 | 做什么 | 典型实现 |
+|------|--------|----------|
+| **聚合入口** | 一条 bash 顺序调用各 gate；失败即非 0 | `scripts/verify-static.sh` |
+| **grep 禁令** | 禁止回退的反模式字符串 | `rg --glob` + 负向 fixture 单测 |
+| **文档链** | tracked Markdown 相对链接 + 锚点 | 小脚本 + 白名单（历史路径 · vendored） |
+| **可达性图** | 从生产入口静态 import 图，报不可达源文件 | 零依赖 Node ESM 或栈等价物 |
+| **设计 token / 类名** | JIT 稳定类、禁止任意 scale 字面量 | 扫描 `src` + allowlist |
+
+## CI
+
+- **可选**独立 job（仅 Node/bash + checkout），与单元测 job **并行**，缩短反馈
+- Markdown 变更若主 CI `paths-ignore` 了 `**.md`，可另 workflow 只跑 doc-link gate
+- 新 gate：**必须**接入聚合入口 + 至少一个负向/回归测例（见 `verify.mdc` §母版门禁清单）
+
+## 局限（须在文档中声明）
+
+- 静态 import 图 **不**覆盖动态 `import()`、运行时注册路由、反射加载
+- 视觉截图基线 **依赖** runner 字体/渲染；跨机器须固定镜像或 `--update` 流程
+- grep gate 只防 **已知** 反模式，不替代 review
+
+## 与分层
+
+| 层 | 静态 gate |
+|----|-----------|
+| L1 / merge 前 | 默认接入项目 fast/static 聚合 verify 入口 |
+| L2+ | 真实栈 E2E · 全量 build · perf — **不**塞进 static 聚合 |
+
+E2E 档位划分 → **test** skill `reference/e2e-tiers.md`。

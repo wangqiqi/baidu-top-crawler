@@ -1,0 +1,1 @@
+harness/core/verify-super-cursor.sh

@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.1.1] - 2026-11-17
+
+### Changed
+
+- Upgrade Super Cursor `.cursor/` pack to **5.1.18** (mother template).
+
+# Changelog
+
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)，变更记录格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [1.1.0] - 2026-10-12

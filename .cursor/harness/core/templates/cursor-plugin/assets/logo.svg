@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Super Cursor">
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <path d="M18 44V20h8.5l7.2 14.4L41 20H49v24h-6.8V30.2L35 44h-5.4l-7.2-13.8V44H18z" fill="#38bdf8"/>
+</svg>
